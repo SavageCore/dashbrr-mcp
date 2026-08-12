@@ -1,5 +1,6 @@
 # dashbrr-mcp
 
+Part of the [arr-mcps](https://github.com/SavageCore/arr-mcps) collection.
 MCP server exposing [Dashbrr](https://github.com/autobrr/dashbrr)'s REST API as
 tools, so an LLM can read **and manage** a dashbrr instance: configured
 services, per-service health, and the summary panels for autobrr, Plex,
