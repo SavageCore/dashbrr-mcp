@@ -1,6 +1,6 @@
 [project]
 name = "dashbrr-mcp"
-version = "0.1.1"
+version = "0.2.0"
 description = "MCP server for Dashbrr's REST API"
 license = "MIT"
 requires-python = ">=3.11"
