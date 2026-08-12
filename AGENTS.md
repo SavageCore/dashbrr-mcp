@@ -21,7 +21,17 @@ Always use the `make bump-*` targets to bump the version (`uv version --bump pat
   git push origin main
   git push origin v<version>
   ```
-- This server is not yet deployed to the Proxmox host or the christopfarr project copy. When it is, follow the pattern in the other `-mcp` servers: push tags, sync the project copy, then `ssh root@192.168.50.3 -- 'cd /root/dashbrr-mcp && git fetch origin && git reset --hard origin/main && uv tool install --force .'`.
+- Then sync the project copy:
+  ```
+  cd /home/savagecore/Documents/christopfarr/mcp/dashbrr-mcp
+  git fetch origin && git reset --hard origin/main
+  ```
+- Deploy to the Proxmox host (root SSH key): pull the repo then reinstall the uv tool:
+  ```
+  ssh root@192.168.50.3 -- 'cd /root/dashbrr-mcp && git fetch origin && git reset --hard origin/main'
+  ssh root@192.168.50.3 -- 'cd /root/dashbrr-mcp && uv tool install --force .'
+  ```
+  The host runs it via `uv tool install` → `/root/.local/bin/dashbrr-mcp` (not from the repo).
 
 ## Auth
 Dashbrr uses session auth, not an API key. The instance must run with
