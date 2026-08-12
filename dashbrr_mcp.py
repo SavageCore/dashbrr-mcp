@@ -1,6 +1,16 @@
 """MCP server exposing the Dashbrr REST API (https://github.com/autobrr/dashbrr) as tools.
 
-One tool per endpoint (see README for the full list). The dashbrr API is
+Full API coverage (see README for the operation list), exposed as 5
+resource-scoped *portmanteau* tools instead of one tool per endpoint - grouped
+per-service (dashbrr_other_services, dashbrr_arr_queues, ...) rather than
+per-resource, since Dashbrr's endpoints are one summary/action per
+third-party service. Each portmanteau tool takes an `operation` enum plus an
+`arguments` dict; see AGENTS.md for the rationale. `_GROUPS` near the bottom
+buckets every endpoint function by service and `_register_group` wraps each
+bucket in one dispatching MCP tool; the functions themselves are not tools
+anymore.
+
+The dashbrr API is
 session-authenticated, not API-key authenticated: either the instance runs with
 DASHBRR_AUTH_BYPASS=true (treats any caller as the builtin user) or a session
 token obtained from a prior login is supplied. This server sends whatever token
@@ -15,14 +25,16 @@ Base path `/api` is hardcoded in build_client; only the root liveness probe
 `/health` bypasses it.
 """
 
+import inspect
 import os
 import sys
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 
 READONLY = ToolAnnotations(readOnlyHint=True)
@@ -41,11 +53,15 @@ _client: httpx.AsyncClient | None = None
 _base_url: str = ""
 
 
-def build_client(base_url: str, api_key: str | None, transport: httpx.BaseTransport | None = None) -> httpx.AsyncClient:
+def build_client(
+    base_url: str, api_key: str | None, transport: httpx.BaseTransport | None = None
+) -> httpx.AsyncClient:
     global _base_url
     _base_url = base_url.rstrip("/")
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    return httpx.AsyncClient(base_url=f"{_base_url}/api", headers=headers, transport=transport)
+    return httpx.AsyncClient(
+        base_url=f"{_base_url}/api", headers=headers, transport=transport
+    )
 
 
 async def _req(
@@ -86,7 +102,7 @@ def _queue_delete_opts(**flags: bool) -> dict[str, str]:
 
 # --- discovery & config -------------------------------------------------------
 
-@mcp.tool(annotations=READONLY)
+
 async def dashbrr_list_settings() -> JSONObj:
     """List every configured service on the dashbrr instance, keyed by
     instanceId (e.g. `sonarr-1`, `plex-main`, `autobrr-0`). API keys are
@@ -95,7 +111,6 @@ async def dashbrr_list_settings() -> JSONObj:
     return await _req("GET", "/settings")
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_ui_preferences_collapse() -> JSONObj:
     """Current UI collapse preferences (which dashboard panels are collapsed)
     for the authenticated user."""
@@ -104,15 +119,16 @@ async def dashbrr_get_ui_preferences_collapse() -> JSONObj:
 
 # --- health -------------------------------------------------------------------
 
-@mcp.tool(annotations=READONLY)
+
 async def dashbrr_get_health() -> JSONObj:
     """Liveness probe for the dashbrr instance itself (not any monitored
     service). Returns {"status": "ok"} when up."""
     return await _req("GET", "/health", root=True)
 
 
-@mcp.tool(annotations=READONLY)
-async def dashbrr_check_service_health(service: str, url: str = "", api_key: str = "") -> JSONObj:
+async def dashbrr_check_service_health(
+    service: str, url: str = "", api_key: str = ""
+) -> JSONObj:
     """Run a health check for one configured service. `service` is the full
     instanceId (e.g. `sonarr-1`, `plex-main`). Optionally pass `url` and
     `api_key` to test an as-yet-unsaved service configuration; leave both
@@ -126,14 +142,13 @@ async def dashbrr_check_service_health(service: str, url: str = "", api_key: str
 
 # --- plex ---------------------------------------------------------------------
 
-@mcp.tool(annotations=WRITE)
+
 async def dashbrr_create_plex_pin() -> JSONObj:
     """Start a Plex authentication flow: create a Plex PIN. Returns the pin id
     and code; poll it with dashbrr_get_plex_pin until it carries an authToken."""
     return await _req("POST", "/plex/auth/pin")
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_plex_pin(pin_id: int) -> JSONObj:
     """Poll the status of a Plex PIN created with dashbrr_create_plex_pin.
     Once the pin has been authorised (has an authToken), the Plex auth flow
@@ -141,7 +156,6 @@ async def dashbrr_get_plex_pin(pin_id: int) -> JSONObj:
     return await _req("GET", f"/plex/auth/pin/{_seg(pin_id)}")
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_plex_sessions(instance_id: str) -> JSONObj:
     """Active Plex playback sessions. `instance_id` must be type-prefixed,
     e.g. `plex-main`."""
@@ -150,21 +164,19 @@ async def dashbrr_get_plex_sessions(instance_id: str) -> JSONObj:
 
 # --- autobrr ------------------------------------------------------------------
 
-@mcp.tool(annotations=READONLY)
+
 async def dashbrr_get_autobrr_stats(instance_id: str) -> JSONObj:
     """autobrr release counters: total/filtered/rejected/approved/error
     counts. `instance_id` must be type-prefixed, e.g. `autobrr-0`."""
     return await _req("GET", "/autobrr/stats", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_autobrr_irc(instance_id: str) -> list[Any]:
     """autobrr IRC networks and their health (name/healthy/enabled).
     `instance_id` must be type-prefixed, e.g. `autobrr-0`."""
     return await _req("GET", "/autobrr/irc", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_autobrr_releases(instance_id: str) -> JSONObj:
     """Recent autobrr releases (data array, count, next_cursor).
     `instance_id` must be type-prefixed, e.g. `autobrr-0`."""
@@ -173,7 +185,7 @@ async def dashbrr_get_autobrr_releases(instance_id: str) -> JSONObj:
 
 # --- media / infra summaries ---------------------------------------------------
 
-@mcp.tool(annotations=READONLY)
+
 async def dashbrr_get_jellyfin_summary(instance_id: str) -> JSONObj:
     """Jellyfin system info plus active sessions (play state, now playing
     item, transcoding). `instance_id` must be type-prefixed, e.g.
@@ -181,21 +193,20 @@ async def dashbrr_get_jellyfin_summary(instance_id: str) -> JSONObj:
     return await _req("GET", "/jellyfin/summary", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_uptimekuma_summary(instance_id: str) -> JSONObj:
     """Uptime Kuma monitor summary. `instance_id` must be type-prefixed,
     e.g. `uptimekuma-0`."""
     return await _req("GET", "/uptimekuma/summary", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_maintainerr_collections(instance_id: str) -> list[Any]:
     """Maintainerr collections (id, title, isActive, deleteAfterDays,
     mediaCount). `instance_id` must be type-prefixed, e.g. `maintainerr-0`."""
-    return await _req("GET", "/maintainerr/collections", _omit({"instanceId": instance_id}))
+    return await _req(
+        "GET", "/maintainerr/collections", _omit({"instanceId": instance_id})
+    )
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_overseerr_requests(instance_id: str) -> JSONObj:
     """Pending Overseerr media requests (pendingCount + request list with
     media and requester info). `instance_id` must be type-prefixed, e.g.
@@ -203,7 +214,6 @@ async def dashbrr_get_overseerr_requests(instance_id: str) -> JSONObj:
     return await _req("GET", "/overseerr/requests", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_traefik_summary(instance_id: str) -> JSONObj:
     """Traefik router/service/middleware overview, flagged issue routers, and
     certificate summary. `instance_id` must be type-prefixed, e.g.
@@ -211,21 +221,18 @@ async def dashbrr_get_traefik_summary(instance_id: str) -> JSONObj:
     return await _req("GET", "/traefik/summary", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_bazarr_summary(instance_id: str) -> JSONObj:
     """Bazarr badges, subtitle provider statuses, and health issues.
     `instance_id` must be type-prefixed, e.g. `bazarr-0`."""
     return await _req("GET", "/bazarr/summary", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_sabnzbd_summary(instance_id: str) -> JSONObj:
     """SABnzbd queue plus recent failures. `instance_id` must be
     type-prefixed, e.g. `sabnzbd-0`."""
     return await _req("GET", "/sabnzbd/summary", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_nzbget_summary(instance_id: str) -> JSONObj:
     """NZBGet queue, status, and recent failures. `instance_id` must be
     type-prefixed, e.g. `nzbget-0`."""
@@ -234,49 +241,43 @@ async def dashbrr_get_nzbget_summary(instance_id: str) -> JSONObj:
 
 # --- arr queues ---------------------------------------------------------------
 
-@mcp.tool(annotations=READONLY)
+
 async def dashbrr_get_sonarr_queue(instance_id: str) -> JSONObj:
     """Sonarr download queue (paged records with series/episode info).
     `instance_id` must be type-prefixed, e.g. `sonarr-1`."""
     return await _req("GET", "/sonarr/queue", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_sonarr_stats(instance_id: str) -> JSONObj:
     """Sonarr queue-derived stats plus server version: {stats, version}.
     `instance_id` must be type-prefixed, e.g. `sonarr-1`."""
     return await _req("GET", "/sonarr/stats", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_radarr_queue(instance_id: str) -> JSONObj:
     """Radarr download queue (paged records with movie info).
     `instance_id` must be type-prefixed, e.g. `radarr-1`."""
     return await _req("GET", "/radarr/queue", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_lidarr_queue(instance_id: str) -> JSONObj:
     """Lidarr download queue. `instance_id` must be type-prefixed, e.g.
     `lidarr-0`."""
     return await _req("GET", "/lidarr/queue", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_readarr_queue(instance_id: str) -> JSONObj:
     """Readarr download queue. `instance_id` must be type-prefixed, e.g.
     `readarr-0`."""
     return await _req("GET", "/readarr/queue", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_prowlarr_stats(instance_id: str) -> JSONObj:
     """Prowlarr grab/fail counts and indexer count. `instance_id` must be
     type-prefixed, e.g. `prowlarr-0`."""
     return await _req("GET", "/prowlarr/stats", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
 async def dashbrr_get_prowlarr_indexers(instance_id: str) -> list[Any]:
     """Prowlarr indexer list (id, name, enable, priority, response time,
     grab/query counts). `instance_id` must be type-prefixed, e.g.
@@ -284,8 +285,9 @@ async def dashbrr_get_prowlarr_indexers(instance_id: str) -> list[Any]:
     return await _req("GET", "/prowlarr/indexers", _omit({"instanceId": instance_id}))
 
 
-@mcp.tool(annotations=READONLY)
-async def dashbrr_get_tailscale_devices(instance_id: str = "", api_key: str = "") -> JSONObj:
+async def dashbrr_get_tailscale_devices(
+    instance_id: str = "", api_key: str = ""
+) -> JSONObj:
     """Tailscale devices on the tailnet. Returns `{"devices": [...],
     "status": "success"}`. Pass either `instance_id` (a type-prefixed
     tailscale instance from the settings) or a raw Tailscale `api_key`; if
@@ -299,7 +301,7 @@ async def dashbrr_get_tailscale_devices(instance_id: str = "", api_key: str = ""
 
 # --- write: queue deletes ------------------------------------------------------
 
-@mcp.tool(annotations=WRITE)
+
 async def dashbrr_delete_sonarr_queue_item(
     instance_id: str,
     id: int,
@@ -331,7 +333,6 @@ async def dashbrr_delete_sonarr_queue_item(
     )
 
 
-@mcp.tool(annotations=WRITE)
 async def dashbrr_delete_radarr_queue_item(
     instance_id: str,
     id: int,
@@ -361,7 +362,6 @@ async def dashbrr_delete_radarr_queue_item(
     )
 
 
-@mcp.tool(annotations=WRITE)
 async def dashbrr_delete_lidarr_queue_item(
     instance_id: str,
     id: int,
@@ -391,7 +391,6 @@ async def dashbrr_delete_lidarr_queue_item(
     )
 
 
-@mcp.tool(annotations=WRITE)
 async def dashbrr_delete_readarr_queue_item(
     instance_id: str,
     id: int,
@@ -423,8 +422,10 @@ async def dashbrr_delete_readarr_queue_item(
 
 # --- write: overseerr ----------------------------------------------------------
 
-@mcp.tool(annotations=WRITE)
-async def dashbrr_set_overseerr_request_status(instance_id: str, request_id: int, status: str) -> None:
+
+async def dashbrr_set_overseerr_request_status(
+    instance_id: str, request_id: int, status: str
+) -> None:
     """Approve or decline a pending Overseerr media request. `instance_id`
     must be type-prefixed, e.g. `overseerr-0`. `request_id` comes from
     dashbrr_get_overseerr_requests. `status` is `2` (approve) or `3`
@@ -439,7 +440,7 @@ async def dashbrr_set_overseerr_request_status(instance_id: str, request_id: int
 
 # --- write: settings & ui ------------------------------------------------------
 
-@mcp.tool(annotations=WRITE)
+
 async def dashbrr_save_settings(
     instance: str,
     display_name: str,
@@ -460,7 +461,6 @@ async def dashbrr_save_settings(
     return await _req("POST", f"/settings/{_seg(instance)}", json_body=body)
 
 
-@mcp.tool(annotations=WRITE)
 async def dashbrr_delete_settings(instance: str) -> None:
     """Delete a service configuration from the dashbrr instance. `instance`
     is the type-prefixed instanceId (e.g. `sonarr-1`). This removes the
@@ -468,7 +468,6 @@ async def dashbrr_delete_settings(instance: str) -> None:
     await _req("DELETE", f"/settings/{_seg(instance)}")
 
 
-@mcp.tool(annotations=WRITE)
 async def dashbrr_set_ui_preference_collapse(key: str, collapsed: bool) -> None:
     """Set whether a dashboard panel is collapsed for the authenticated user.
     `key` identifies the panel; `collapsed` toggles its state."""
@@ -479,11 +478,145 @@ async def dashbrr_set_ui_preference_collapse(key: str, collapsed: bool) -> None:
     )
 
 
+# Resource groups for portmanteau registration. Every tool function name
+# must appear in exactly one group - see test_all_functions_grouped.
+_GROUPS: dict[str, tuple[str, ...]] = {
+    "dashbrr_settings": (
+        "dashbrr_delete_settings",
+        "dashbrr_get_ui_preferences_collapse",
+        "dashbrr_list_settings",
+        "dashbrr_save_settings",
+        "dashbrr_set_ui_preference_collapse",
+    ),
+    "dashbrr_health": (
+        "dashbrr_check_service_health",
+        "dashbrr_get_health",
+    ),
+    "dashbrr_plex": (
+        "dashbrr_create_plex_pin",
+        "dashbrr_get_plex_pin",
+        "dashbrr_get_plex_sessions",
+    ),
+    "dashbrr_arr_queues": (
+        "dashbrr_delete_lidarr_queue_item",
+        "dashbrr_delete_radarr_queue_item",
+        "dashbrr_delete_readarr_queue_item",
+        "dashbrr_delete_sonarr_queue_item",
+        "dashbrr_get_lidarr_queue",
+        "dashbrr_get_prowlarr_indexers",
+        "dashbrr_get_prowlarr_stats",
+        "dashbrr_get_radarr_queue",
+        "dashbrr_get_readarr_queue",
+        "dashbrr_get_sonarr_queue",
+        "dashbrr_get_sonarr_stats",
+    ),
+    "dashbrr_other_services": (
+        "dashbrr_get_autobrr_irc",
+        "dashbrr_get_autobrr_releases",
+        "dashbrr_get_autobrr_stats",
+        "dashbrr_get_bazarr_summary",
+        "dashbrr_get_jellyfin_summary",
+        "dashbrr_get_maintainerr_collections",
+        "dashbrr_get_nzbget_summary",
+        "dashbrr_get_overseerr_requests",
+        "dashbrr_get_sabnzbd_summary",
+        "dashbrr_get_tailscale_devices",
+        "dashbrr_get_traefik_summary",
+        "dashbrr_get_uptimekuma_summary",
+        "dashbrr_set_overseerr_request_status",
+    ),
+}
+
+
+def _op_line(name: str, fn: Any) -> str:
+    """One line of a group tool's description: signature + one-line doc."""
+    sig = ", ".join(
+        p.name if p.default is inspect.Parameter.empty else f"{p.name}={p.default!r}"
+        for p in inspect.signature(fn).parameters.values()
+    )
+    return f"- {name}({sig}) — {' '.join((fn.__doc__ or '').split())}"
+
+
+def _register_group(
+    group: str, names: tuple[str, ...], ns: dict[str, Any], readonly_names: set[str]
+) -> None:
+    """Register one dispatching tool that fans out to every function named
+    in `names`. The functions themselves are untouched - they're just
+    looked up by name instead of each becoming its own tool."""
+    fns = {n: ns[n] for n in names}
+
+    async def dispatch(
+        operation: str, arguments: JSONObj | None = None
+    ) -> JSONVal | str | None:
+        # `| None` covers the several write operations (delete/set) that
+        # return nothing on success.
+        fn = fns.get(operation)
+        if fn is None:
+            raise ToolError(
+                f"Unknown operation {operation!r} for {group}. Valid: {', '.join(fns)}"
+            )
+        return await fn(**(arguments or {}))
+
+    dispatch.__annotations__["operation"] = Literal[names]
+    ann = READONLY if set(names) <= readonly_names else None
+    mcp.add_tool(
+        Tool.from_function(
+            dispatch,
+            name=group,
+            description=(
+                f"{group.replace('_', ' ')} operations on Dashbrr. Pass `operation` and an "
+                f"`arguments` dict matching that operation's parameters.\n\n"
+                + "\n".join(_op_line(n, f) for n, f in fns.items())
+            ),
+            annotations=ann,
+        )
+    )
+
+
+def _register_tools() -> None:
+    ns = globals()
+    readonly_names: set[str] = {
+        "dashbrr_check_service_health",
+        "dashbrr_get_autobrr_irc",
+        "dashbrr_get_autobrr_releases",
+        "dashbrr_get_autobrr_stats",
+        "dashbrr_get_bazarr_summary",
+        "dashbrr_get_health",
+        "dashbrr_get_jellyfin_summary",
+        "dashbrr_get_lidarr_queue",
+        "dashbrr_get_maintainerr_collections",
+        "dashbrr_get_nzbget_summary",
+        "dashbrr_get_overseerr_requests",
+        "dashbrr_get_plex_pin",
+        "dashbrr_get_plex_sessions",
+        "dashbrr_get_prowlarr_indexers",
+        "dashbrr_get_prowlarr_stats",
+        "dashbrr_get_radarr_queue",
+        "dashbrr_get_readarr_queue",
+        "dashbrr_get_sabnzbd_summary",
+        "dashbrr_get_sonarr_queue",
+        "dashbrr_get_sonarr_stats",
+        "dashbrr_get_tailscale_devices",
+        "dashbrr_get_traefik_summary",
+        "dashbrr_get_ui_preferences_collapse",
+        "dashbrr_get_uptimekuma_summary",
+        "dashbrr_list_settings",
+    }
+    for group, names in _GROUPS.items():
+        _register_group(group, names, ns, readonly_names)
+
+
+_register_tools()
+
+
 def main() -> None:
     global _client
     url = os.environ.get("DASHBRR_URL")
     if not url:
-        print("DASHBRR_URL environment variable is required (e.g. https://dashbrr.example.com)", file=sys.stderr)
+        print(
+            "DASHBRR_URL environment variable is required (e.g. https://dashbrr.example.com)",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
     api_key = os.environ.get("DASHBRR_API_KEY")
     if not api_key:

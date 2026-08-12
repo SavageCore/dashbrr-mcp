@@ -63,13 +63,28 @@ claude mcp add dashbrr \
 
 ## Tools
 
-One tool per Dashbrr API endpoint. Per-service tools take `instance_id`, the
-type-prefixed instance id from `dashbrr_list_settings` (e.g. `sonarr-1`,
-`plex-main`, `autobrr-0`).
+**5 resource-scoped tools**, each covering multiple Dashbrr API endpoints (34
+total) via an `operation` parameter. Grouping here is per-*service* rather
+than per-*resource*, since Dashbrr's endpoint shape is one summary/action per
+third-party service. Call a tool with `operation` set to one of its listed
+operations and an `arguments` dict matching that operation's parameters — the
+tool's own description (visible to your MCP client) lists every operation,
+its signature, and a one-line doc. Per-service operations take
+`instance_id`, the type-prefixed instance id from `dashbrr_list_settings`
+(operation `dashbrr_list_settings`, e.g. `sonarr-1`, `plex-main`, `autobrr-0`).
 
-### Read-only
+| Tool | Operations | Covers |
+|---|---|---|
+| `dashbrr_other_services` | 13 | autobrr, Jellyfin, Uptime Kuma, Maintainerr, Overseerr, Traefik, Bazarr, SABnzbd, NZBGet, Tailscale |
+| `dashbrr_arr_queues` | 11 | Sonarr/Radarr/Lidarr/Readarr queues, Prowlarr stats/indexers |
+| `dashbrr_settings` | 5 | List/save/delete settings, UI preferences |
+| `dashbrr_plex` | 3 | Plex auth pin, sessions |
+| `dashbrr_health` | 2 | Liveness probe, per-service health |
 
-| Tool | Endpoint |
+Example: `dashbrr_arr_queues(operation="dashbrr_delete_sonarr_queue_item", arguments={"instance_id": "sonarr-1", "id": 42})`.
+Endpoint-level naming is preserved as the `operation` value:
+
+| Operation | Endpoint |
 |---|---|
 | `dashbrr_list_settings` | `GET /api/settings` |
 | `dashbrr_get_ui_preferences_collapse` | `GET /api/ui/preferences/collapse` |
@@ -96,11 +111,6 @@ type-prefixed instance id from `dashbrr_list_settings` (e.g. `sonarr-1`,
 | `dashbrr_get_sabnzbd_summary` | `GET /api/sabnzbd/summary` |
 | `dashbrr_get_nzbget_summary` | `GET /api/nzbget/summary` |
 | `dashbrr_get_tailscale_devices` | `GET /api/tailscale/devices` |
-
-### Write / destructive
-
-| Tool | Endpoint |
-|---|---|
 | `dashbrr_create_plex_pin` | `POST /api/plex/auth/pin` |
 | `dashbrr_delete_sonarr_queue_item` | `DELETE /api/sonarr/queue/{id}` |
 | `dashbrr_delete_radarr_queue_item` | `DELETE /api/radarr/queue/{id}` |
