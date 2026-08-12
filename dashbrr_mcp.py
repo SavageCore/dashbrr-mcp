@@ -285,11 +285,11 @@ async def dashbrr_get_prowlarr_indexers(instance_id: str) -> list[Any]:
 
 
 @mcp.tool(annotations=READONLY)
-async def dashbrr_get_tailscale_devices(instance_id: str = "", api_key: str = "") -> list[Any]:
-    """Tailscale devices on the tailnet. Pass either `instance_id` (a
-    type-prefixed tailscale instance from the settings) or a raw Tailscale
-    `api_key`; if neither is given the first tailscale-configured instance is
-    used."""
+async def dashbrr_get_tailscale_devices(instance_id: str = "", api_key: str = "") -> JSONObj:
+    """Tailscale devices on the tailnet. Returns `{"devices": [...],
+    "status": "success"}`. Pass either `instance_id` (a type-prefixed
+    tailscale instance from the settings) or a raw Tailscale `api_key`; if
+    neither is given the first tailscale-configured instance is used."""
     return await _req(
         "GET",
         "/tailscale/devices",

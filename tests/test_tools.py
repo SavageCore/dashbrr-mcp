@@ -249,23 +249,23 @@ async def test_25_get_prowlarr_indexers(server, recorder):
 
 
 async def test_26_get_tailscale_devices(server, recorder):
-    recorder.response = httpx.Response(200, json=[])
+    recorder.response = httpx.Response(200, json={"devices": [], "status": "success"})
     result = await call(server, "dashbrr_get_tailscale_devices", instance_id="tailscale-0")
     assert recorder.method == "GET"
     assert recorder.url.path == "/api/tailscale/devices"
     assert recorder.params["instanceId"] == "tailscale-0"
-    assert result.data == []
+    assert result.data == {"devices": [], "status": "success"}
 
 
 async def test_26b_tailscale_accepts_raw_api_key(server, recorder):
-    recorder.response = httpx.Response(200, json=[])
+    recorder.response = httpx.Response(200, json={"devices": [], "status": "success"})
     await call(server, "dashbrr_get_tailscale_devices", api_key="tskey-secret")
     assert recorder.params["apiKey"] == "tskey-secret"
     assert "instanceId" not in recorder.params
 
 
 async def test_26c_tailscale_with_neither_picks_first_instance(server, recorder):
-    recorder.response = httpx.Response(200, json=[])
+    recorder.response = httpx.Response(200, json={"devices": [], "status": "success"})
     await call(server, "dashbrr_get_tailscale_devices")
     assert "instanceId" not in recorder.params
     assert "apiKey" not in recorder.params
