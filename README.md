@@ -1,6 +1,6 @@
 # dashbrr-mcp
 
-Part of the [arr-mcps](https://github.com/SavageCore/arr-mcps) collection.
+Part of the [arr-mcps](https://github.com/arr-mcps/arr-mcps) collection.
 MCP server exposing [Dashbrr](https://github.com/autobrr/dashbrr)'s REST API as
 tools, so an LLM can read **and manage** a dashbrr instance: configured
 services, per-service health, and the summary panels for autobrr, Plex,
@@ -24,7 +24,7 @@ Dashbrr uses **session auth**, not an API key. Two ways to use this server:
 
 ## Install
 
-Download a wheel from the [latest release](https://github.com/SavageCore/dashbrr-mcp/releases/latest)
+Download a wheel from the [latest release](https://github.com/arr-mcps/dashbrr-mcp/releases/latest)
 and install it as a `uv` tool (no repo checkout needed):
 
 ```bash
@@ -143,7 +143,7 @@ make help  # list all commands
 | `make clean` | Remove build artifacts |
 
 The release workflow (`.github/workflows/release.yml`) builds and publishes to
-[Releases](https://github.com/SavageCore/dashbrr-mcp/releases) whenever a `v*`
+[Releases](https://github.com/arr-mcps/dashbrr-mcp/releases) whenever a `v*`
 tag is pushed - so the usual flow is `make bump-patch`, commit, then tag and
 push.
 
